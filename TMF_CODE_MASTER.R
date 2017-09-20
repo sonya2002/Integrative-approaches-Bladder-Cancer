@@ -336,6 +336,19 @@ legend("topleft", levels(cluster), pch = 15, col = terrain.colors(3))
 CrossTable(data4mfa$cluster,data4mfa$clinical.BLCA.diagnosis_subtype, prop.r=F, prop.c=F, prop.t=F, prop.chisq=T, chisq = T)
 
 
+# ==============================================================
+# 6B. MFA CORRELATION WITH THE CLINICAL DATA
+# ==============================================================
+
+cluster<-data2index$cluster
+data4mfa<-cbind(cluster, clinical.sel[,c(1:3)])
+#Cluster to clin
+l= ncol(matrix_t_clean_2)
+pdf("MFAplot2.pdf", width = 15, height = 15)
+res = MFA(data4mfa[,1:4], group = c(1, 1, 1, 1), type = c("n","n","n","n"), name.group = c("cond", "clintype","grade", "stage"), num.group.sup = 3)
+dev.off()
+
+
 
 
 # ==============================================================
