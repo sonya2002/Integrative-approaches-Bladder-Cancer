@@ -3,8 +3,6 @@
 # ==============================================================
 # Set up the directory where source data is placed
 
-
-
 # LIBRARIES
 # ==============================================================
 
@@ -32,18 +30,37 @@ library(rafalib)
 library(RColorBrewer)
 library(rgl)
 library(dendextend)
+library(vcd)
+library(fpc)
+library(clustertend)
+library(seriation)
+library(gmodels)
+library(reshape)
+library(ggplot2)
+library(scales)
+library(RTCGA.clinical)
+library(survival)
+library(survminer)
+library(topGO)
 
-# DATA SOURCES
 # ==============================================================
-# Dataset of gene configurations 
-matrix<-read.table("matrix_res2_2", header=T, row.names=1, 
-                   colClasses = "character", check.names=F)
-configlegend<-read.table("leyend2import.csv",  header = F)
+# 0. DATA SOURCES
+# ==============================================================
+
+
+# Mutation data matrix (processed)
+load("mutations.RData")
+# CNV data matrix (processed)
+load("CNV.Rdata")
+# Methylation data matrix (processed) 
+load("Methy.RData")
+# Data matrix for integrated gene configurations
+load("matrix.RData")
+# Legend for the gene configurations
+load("configlegend.RData")
 
 # Expression data:
-setwd("~/omics/code to TFM/data/Expression data")
-expression<-read.table("BLCA_rna.txt", header=TRUE, 
-                       row.names=1, sep="\t", check.names = FALSE)
+load("expression.RData")
 exp<-expression[c(2:20532),which(substr(colnames(expression), 14,16) == "01A")]
 colnames(exp)<-substr(colnames(exp), 6,12)
 colnames(exp)<-gsub("\\.", "-", colnames(exp))
@@ -53,14 +70,6 @@ exp.filt.names<-as.vector(sapply(rownames(exp.filt), function(x)
 
 
 # Clinical data:
-setwd("~/omics/code to TFM/data/Clinical data")
-patients<-names(matrix)
-clinical.TCGA.query<-GDCquery(project="TCGA-BLCA",
-                              data.category = "Clinical",
-                              barcode = patients)
-GDCdownload(clinical.TCGA.query)
-clinical_BLCA<-GDCprepare_clinic(clinical.TCGA.query, clinical.info ="patient")
-
 load("clinical_BLCA.RData")
 rownames(clinical_BLCA)<-patients
 clinical.BLCA<-as.data.frame(clinical_BLCA)
@@ -69,43 +78,16 @@ clinical.BLCA$agecat<-cut(clinical.BLCA$age, c(seq(0,100,10)))
 clinical.BLCA.subinfo<-data.frame(clinical.BLCA$diagnosis_subtype, 
                                   clinical.BLCA$neoplasm_histologic_grade, 
                                   clinical.BLCA$stage_event_pathologic_stage, 
-                                  clinical.BLCA$gender, clinical.BLCA$race_list, clinical.BLCA$age, clinical.BLCA$agecat)
+                                  clinical.BLCA$gender, clinical.BLCA$race_list, 
+                                  clinical.BLCA$age, clinical.BLCA$agecat)
 rownames(clinical.BLCA.subinfo)<-rownames(clinical_BLCA)
 clinical.BLCA.subinfo[clinical.BLCA.subinfo == ""]<-"NA"
 clinical.BLCA.complete<-clinical.BLCA.subinfo[complete.cases(clinical.BLCA.subinfo),]
 prop.table(table(clinical.BLCA.complete$clinical.BLCA.diagnosis_subtype))
 prop.table(table(clinical.BLCA.complete$clinical.BLCA.stage_event_pathologic_stage))
 
-#Mutation data # processed in bash sed 's/\b[12345678]\b/FALSE/gi' matrix_res2_2
-#| sed 's/\b1[01234579]\b/FALSE/gi' | sed 's/\b2[0245]\b/FALSE/gi' | sed
-#'s/\b9\b/TRUE/gi' | sed 's/\b1[68]\b/TRUE/gi' | sed 's/\b2[136789]\b/TRUE/gi' |
-#sed 's/\b3[0123456789]\b/TRUE/gi' | sed 's/\b40\b/TRUE/gi' >
-#matrix_res2_2_mutations
-setwd("~/omics/code to TFM/data/source data")
-mutations<-read.table("matrix_res2_2_mutations", header=T, row.names=1, 
-                      colClasses = "character", check.names = F)
-
-
-#CNV data #processed in bash sed
-#'s/\b[12]\b\|\b13\b\|\b2[48]\b\|\b3[089]\b/loss_2/gi' matrix_res2_2 | sed
-#'s/\b[6]\b\|\b1[146]\b\|\b2[267]\b\|\b35\b/loss_1/gi' | sed
-#'s/\b[578]\b\|\b2[019]\b\|\b3[36]\b/NULL/gi' | sed
-#'s/\b[349]\b\|\b1[258]\b\|\b23\b\|\b31\b/gain_1/gi' | sed
-#'s/\b1[079]\b\|\b25\b\|\b3[247]\b\|\b40\b/gain_2/gi' > matrix_res2_2_CNV
-CNV<-read.table("matrix_res2_2_CNV", header=T, colClasses = "character", 
-                row.names=1, check.names = F)
-
-
-#Methylation data #processed in bash sed
-#'s/\b[1368]\b\|\b1[068]\b\|\b2[18]\b\|\b34\b/low/gi' matrix_res2_2 | sed
-#'s/\b[2459]\b\|\b1[17]\b\|\b2[79]\b\|\b3[02]\b/medium/gi' | sed
-#'s/\b7\b\|\b1[3459]\b\|\b2[36]\b\|\b3[378]\b/high/gi' | sed
-#'s/\b12\b\|\b2[0245]\b\|\b3[1569]\b\|\b40\b/NA/gi' > matrix_res2_2_methylation
-Methy<-read.table("matrix_res2_2_methylation", header=T, colClasses = "character", 
-                  row.names=1, check.names = F)
-
-
-# 1. CASE SELECTION
+# ==============================================================
+# 1. FILTERING SAMPLES
 # ==============================================================
 # Filter by race: caucasian
 caucasian.patients<-rownames(clinical.BLCA[clinical.BLCA$race_list == "WHITE",])
@@ -118,17 +100,21 @@ caucasian.males.complete.cases<-intersect(caucasian.males,
                                           rownames(clinical.BLCA.complete))
 matrix_caucasian<-matrix[,names(matrix) %in% caucasian.males.complete.cases]
 
-
+# ==============================================================
 # 2. DATA FILTERING
 # ==============================================================
-# 2A. FILTER GENES WITH NA VALUES IN MORE THAN 10% OF THE SAMPLES
-filter_genes_NA <- c ("PLXND1","TACC3","CLCA4","C8B","SLC4A7","PHF23","CP","PUM2","SPA17","FNDC8","IGF2BP2","TRAF4","AFM","CFHR2","HSPB11","ANKRD24","CD209","DTX2","DGCR14","GGTLC2","EIF3L","DHRS2","AMMECR1","MSLN","NME4","SGK3","CSPP1","C19orf53","TJP3","ARMC6","FKBP14","CYP3A5","SPAM1","HSD17B1","CRTAM","SLCO1B3","AICDA","MRPL2","IMPG1","C9","TFDP2","LRRC31","PPM1G","OPRD1","FBXO6","CFHR3","MPL","PHF3","RAB3GAP2","HOXB5","INSL4","CSMD2","COPA","TAF1L","GIPC1","TP53TG5","HCST","CANX","OR7A10","GFER","OR1E2","POR","FGF13","ACSS2","TPTE2","CFHR4","HRH4","UGT2A3","AKIRIN2","FAM186B","TAF5L","SETDB2","CBWD2","USP20","IL33","SLC3A1","CYP2C8","CCDC54","MTTP","SBNO1","PARN","GAS8","OSBPL1A","RPS8","GPA33","F13B","FCRL5","NVL","SCN1A","TIMD4","TAAR8","NONO","SEC16A","MSRB2","SPINT4","LPHN3","CCDC74B","CYSLTR2","UTRN","ZNF117","CPB1","TMPRSS11D","PTDSS1","FAM160B2","WFDC8","FBXL13","CYP4A22","CCDC74A","WDR82","IL31RA","CSMD3","PRKACG","C8orf34","C9orf84","GTF2A1","ALKBH3","SPIC","STXBP4","OR2D2","OR4D6","URM1","TSR1","KLK4","OR13J1","TAS2R1","PYDC1","MAP3K2","SERPINA9","DLGAP1","STAT2","OSCAR","OR7G2","OR4D5","GRIK1","PROL1","UGT2B7","OR2AT4","PDZD3","OR5T3","AGAP5","OR1S1","CBWD1","XKR3","TADA2B","OR10K1","C9orf131","MGA","OR5R1","OR10AG1","OR11H6","OR4K17","OR10H4","DMRTA1","ANKLE2","OR2T12","MAF1","CRIPAK","OR1E1","WFDC11","C12orf36","DEFB112","OR56A1","OR52E4","OR52D1","OR4C6","OR4C16","FAM153B","BACE2","OTOL1","OR10G7","IGSF5","OR56A4","PMCH","FAM167B","CLECL1","C6orf58","PIWIL3","ODF4","OR6C70","ANKS1B","ZNF479","ZBTB37","SCN10A","KCNIP4","C1orf110","CALHM1","NKAIN3","OR5D14","OR10X1","KPNA4","ZNF197","GPR141","TMPRSS11A","OR6C75","OR51F1","ZNF383","CENPP","OR6N2","SNTN","LIPI","GJB5","OR6M1","VN1R2","OR5AC2","PATE2","KRT39","CXorf40B","OR6N1","SLC28A3","DMBX1","MAP1LC3C","OR1S2","OR5H2","TMEM207","OR2M2","AKR1C4","OXCT2","SUCNR1","TRIM10","ZFP57","OR2W1","C7orf66","CRYZL1","SERPINB4","CD200R1L","GBP7","KLRK1","ZNF99","OR6B1","TAS2R41","MAGEA3","OR2F2","OR2A2","TBC1D3B","ORM2","VN1R4","DYTN","TAS2R39","OR4A47","OR7E24","STRC","CFHR1","OR2AE1","N4BP2L2","PRODH2","PYDC2","DPP3","OR5M1","TAS2R43","ABCA10")
+
+# 2A. FILTER GENES WITH NA VALUES 
+
+load("filter_genes_NA.RData")
 
 # 2B. FILTER MCA OUTLIERS
+
 # Filering MCA outliers in data
 matrix_clean<-matrix_caucasian[! rownames(matrix_caucasian) %in% filter_genes_NA,]
 matrix_t_clean <- t(matrix_clean)
 result <- MCA(matrix_t_clean, graph = FALSE)
+plot(result)
 ind.mca.outliers<-names(c(which(result$ind$coord[,2]>1),
                           which(result$ind$coord[,1]>1)))
 # Filering MCA outliers in SNV data
@@ -144,6 +130,7 @@ CNV_t<-CNV_t[row.names(matrix_t_clean),]
 CNV_t<-CNV_t[,! colnames(CNV_t) %in% filter_genes_NA]
 mca_CNV<-MCA(CNV_t, graph = FALSE)
 ind.cnv.outliers<-names(which(mca_CNV$ind$coord[,2]>2))
+
 # Filering MCA outliers in METHYLATION data
 Methy_t<-t(Methy)
 Methy_t<-Methy_t[row.names(matrix_t_clean),]
@@ -151,18 +138,19 @@ Methy_t<-Methy_t[,! colnames(Methy_t) %in% filter_genes_NA]
 mca_Methy<-MCA(Methy_t, graph = FALSE)
 ind.met.outliers<-names(c(which(mca_Methy$ind$coord[,1]>5), 
                           which(mca_Methy$ind$coord[,2]>(5))))
+
 # summary for outliers criteria
 filter_cases <- unique(c(ind.mca.outliers, ind.mut.outliers, 
                          ind.cnv.outliers, ind.met.outliers)) 
 
-# 2C. FILTER GENES WITH LOW AND HIGH VARIABILITY OF CONFIGURATIONS 
-## Count Matrix:
+# 2C. FILTER GENES WITH LOW AND HIGH VARIABILITY OF GENE CONFIGURATIONS 
+
+## GENE CONFIGURATIONS Count Matrix:
 count_config<-apply(matrix_t_clean, 2, table)
 matrix_config_count<-matrix(nrow = ncol(matrix_t_clean), ncol = 40)
 rownames(matrix_config_count)<-names(count_config)
 colnames(matrix_config_count)<-c(1:40)
 l<-length(count_config)
-library(rgl)
 for (i in 1:l){
   index.list<- melt(count_config[i])[,1]
   value.list<-melt(count_config[i])[,2]
@@ -179,7 +167,7 @@ matrix_config_count[is.na(matrix_config_count)] <- 0
 CV<- function(x){(mean(x)/sd(x))*100}
 CV.genes<-apply(matrix_config_count, 1, CV)
 # Quantiles
-(cbind(cv.quantiles<-quantile(CV.genes, probs = seq(0,1, 0.01))))
+plot(cbind(cv.quantiles<-quantile(CV.genes, probs = seq(0,1, 0.01))))
 # Cut-off genes with high and low coeff of variation in configurations:
 selected.low<-CV.genes[CV.genes<cv.quantiles ["25%"]]
 selected.high<-CV.genes[CV.genes>cv.quantiles["95%"]]
@@ -200,6 +188,7 @@ filter_cases2 <- unique(c(ind.mca.outliers, ind.mut.outliers,
                           ind.cnv.outliers, ind.met.outliers, mca1.outliers)) 
 
 
+# 2E. PLOT MCA FILTERED OUTLIERS
 plot.MCA(result, invisible=c("var"), cex=0.7, label='ind')
 abline(v=5, h=5, col="red", lwd=3, lty=2)
 # Plot MCA outliers
@@ -212,57 +201,48 @@ plot.MCA(mca_Methy, invisible=c("var"), cex=0.7, label='ind')
 abline(v=5, h=5, col="red", lwd=3, lty=2)
 plot.MCA(mca1.filtered, invisible=c("var"), cex=0.7, label='ind')
 abline(v=1.5, h=1.5, col="red", lwd=3, lty=2)
-library(rgl)
+
+# 2F. 3D PLOT TO OUTLIERS, RGL library.
 open3d()
 plot3d(mca1.filtered$ind$coord[,1:3],  col = "blue", size = 5, box=FALSE) 
 points3d(mca1.filtered$ind$coord["GV-A3QI",1],mca1.filtered$ind$coord["GV-A3QI",2],
          mca1.filtered$ind$coord["GV-A3QI",3], col="red")
 
 
-# 3. MULTICORESPONDENCE ANALYSIS ON FINAL FILTERED DATASET.
 # ==============================================================
+# 3. MULTICORESPONDENCE ANALYSIS ON FILTERED DATASET.
+# ==============================================================
+
 matrix_t_clean_2<-matrix_t_filtered[! row.names(matrix_t_filtered)
                                     %in% filter_cases2, ]
 result_filter_var <- MCA(matrix_t_clean_2, graph = FALSE)
 matrix_clean_2<-t(matrix_t_clean_2)
+
 # 3A. Hieralchical Clustering on Principal components
 cluster_var<-HCPC(result_filter_var)
 plot.HCPC(cluster_var, choice="map", angle=90, ind.names=FALSE, draw.tree=FALSE )
 plot( cluster_var, choice ="tree", cex = 0.6)
 plot(cluster_var, choice = "3D.map")
+
 ## Individuals in each cluster
 contribucion<-result_filter_var$ind$contrib
 ind_in_cluster<-as.matrix(cluster_var$call$X$clust)
 rownames(ind_in_cluster)<-rownames(cluster_var$call$X)
 table(ind_in_cluster)
 
-#3D MCA plotlibrary(rgl) for individuals
+#3D MCA plotlibrary rgl
 plot3d(result_filter_var$ind$coord[,1:3],  
        col = as.factor(ind_in_cluster[rownames(result_filter_var$ind$coord),]), 
        size = 2, type = "s")
 
 
 
-
+# ==============================================================
 #4. CLUSTER VALIDATION
 # ==============================================================
-# http://www.sigmath.es.osaka-u.ac.jp/shimo-lab/prog/pvclust/
-library(pvclust)
-#Pvclust function, bootstrap the data between clusters
-pvclust.result <- pvclust(t(result_filter_var$ind$coord), 
-                          method.dist="euclidean", method.hclust="ward.D", nboot=100, r=1)
-plot(pvclust.result)
-pvrect(pvclust.result, alpha=0.95)
-pv.culsters<-pvpick(pvclust.result)
-#pvclust provides two types of p-values: AU (Approximately Unbiased) p-value and
-#BP (Bootstrap Probability) value. AU p-value, which is computed by multiscale
-#bootstrap resampling, is a better approximation to unbiased p-value than BP
-#value computed by normal bootstrap resampling.
 
 
-# http://www.win-vector.com/blog/2015/09/bootstrap-evaluation-of-clusters/
 # Clusterboot() to individuals
-library(fpc)
 x= result_filter_var$ind$coord[,1]
 y= result_filter_var$ind$coord[,2]
 z= result_filter_var$ind$coord[,3]
@@ -273,32 +253,19 @@ table(groups)
 cboot.hclust$bootmean
 cboot.hclust$bootbrd 
 
-xtable((rbind(table(groups), round(cboot.hclust$bootmean,2), round(cboot.hclust$bootbrd,2)))[2:3,])
-
-# with all the dimensions is more inestable
-#cboot.hclust <-clusterboot(result_filter_var$ind$coord,clustermethod=hclustCBI,
-#                           method="ward.D", k=3)
-#cboot.hclust$bootmean# this value should be neart to 1 to be strong cluster
-#cboot.hclust$bootbrd # this is the number of times that the cluster is disolved
-
 
 # Hopkins statistic
-library(clustertend)
-get_clust_tendency(result_filter_var$ind$coord, n=50)
-#$hopkins_stat  [1] 0.2324831 if the value of Hopkis statistic is close to zero
-#the we can reject the null hipotesis and conclude that the dataset is
-#significantly a clusterable data.
-
+get_clust_tendency(result_filter_var$ind$coord, n=length(rownames(result_filter_var$ind$coord))-1)
 
 # Validation by dissplot
-library(seriation)
 km.res<-kmeans(result_filter_var$ind$coord,3)
 data_dist<- dist(result_filter_var$ind$coord)
 dissplot(data_dist, labels=km.res$cluster)
 
-
-# 5. CHARACTERIZING CLUSTERS
 # ==============================================================
+# 5. CHARACTERIZE CLUSTERS
+# ==============================================================
+
 #Cluster1
 ind_in_cluster_1<-as.data.frame(ind_in_cluster[which(ind_in_cluster =="1"),])
 colnames(ind_in_cluster_1)<-"cluster"
@@ -317,46 +284,27 @@ index_c3<-ind_in_cluster_3
 
 data2index<-rbind(index_c1, index_c2, index_c3)
 index<-rownames(data2index)
+
 #Analisis of configurations distribution for each gene and cluster differencies
 
-# Total matrix of configurations
+# Indexed matrix to further characterization
 indexed_matrix<-matrix_t_clean_2[index,]
 identical(rownames(indexed_matrix), rownames(data2index))
 matrix_clusters<-cbind(data2index, indexed_matrix)
-#Contingency table for configuration frecuencies:
-xtabs(~ matrix_clusters$FGFR3 + matrix_clusters$cluster, data = matrix_clusters)
-mosaicplot(t(xtabs(~ matrix_clusters$FGFR3 + matrix_clusters$cluster, data = matrix_clusters)), shade = TRUE, type = "FT")
-# plot just a subset of the table
-library("vcd")
-assoc(head(xtabs(~ matrix_clusters$FGFR3 + matrix_clusters$cluster, data = matrix_clusters)), shade = T, las=3)
-chisq.test(xtabs(~ matrix_clusters$FGFR3 + matrix_clusters$cluster, data = matrix_clusters))
 
 
+# ==============================================================
 # 6. CORRELATION WITH THE CLINICAL DATA
 # ==============================================================
 
 clinical.sel<-clinical.BLCA.complete[index,]
-
-head(clinical.sel)
 identical(rownames(indexed_matrix), rownames(clinical.sel))
 cluster<-data2index[rownames(clinical.sel),]$cluster
 data4mfa<-cbind(cluster, clinical.sel)
-library(gmodels)
-dim(data4mfa)
-head(data4mfa)
-
-# AGECAT INDEPENDENT p = Chi^2 =  3.302093     d.f. =  2     p =  0.191849    !!!!!
-clinical.BLCA$agecat<-factor(clinical.BLCA$agecat)
-struct <- structable(~ cluster + clinical.BLCA.agecat, data = data4mfa)
-mosaic(struct, data = data4mfa, shade = TRUE, direction = "v",pop=F, main = "Age Cat")
-labeling_cells(text = as.table(round(struct/nrow(data4mfa),2))*100, margin = 0)(as.table(round(struct/nrow(data4mfa),2)))
-barplot(round(struct/nrow(data4mfa),2)*100,beside = T, col = terrain.colors(3))
-legend("topleft", levels(cluster), pch = 15, col = terrain.colors(3))
-CrossTable(data4mfa$cluster,data4mfa$clinical.BLCA.diagnosis_subtype, prop.r=F, prop.c=F, prop.t=F, prop.chisq=T, chisq = T)
 
 
 
-# CLINICAL SUBTYPE INDEPENDENT p =  0.191849    !!!!!
+# CLINICAL SUBTYPE 
 data4mfa$clinical.BLCA.diagnosis_subtype<-factor(data4mfa$clinical.BLCA.diagnosis_subtype)
 struct <- structable(~ cluster + clinical.BLCA.diagnosis_subtype, data = data4mfa)
 mosaic(struct, data = data4mfa, shade = TRUE, direction = "v",pop=F, main = "Histological subtype")
@@ -367,7 +315,7 @@ CrossTable(data4mfa$cluster,data4mfa$clinical.BLCA.diagnosis_subtype, prop.r=F, 
 
 
 
-# HISTOLOGIC GRADE DEPENDENT p =  0.2866076 
+# HISTOLOGIC GRADE
 data4mfa$clinical.BLCA.neoplasm_histologic_grade<-factor(data4mfa$clinical.BLCA.neoplasm_histologic_grade)
 struct <- structable(~ cluster + clinical.BLCA.neoplasm_histologic_grade, data = data4mfa)
 mosaic(struct, data = data4mfa, shade = TRUE, direction = "v",pop=F, main = "Grade")
@@ -377,8 +325,7 @@ legend("topleft", levels(cluster), pch = 15, col = terrain.colors(3))
 CrossTable(data4mfa$cluster,data4mfa$clinical.BLCA.neoplasm_histologic_grade, prop.r=F, prop.c=F,
            prop.t=F, prop.chisq=T, chisq = T)
 
-
-# Patological stage independent  p =  0.599314
+# PATOLOGICAL STAGE
 data4mfa$clinical.BLCA.stage_event_pathologic_stage<-factor(data4mfa$clinical.BLCA.stage_event_pathologic_stage)
 struct <- structable(~ cluster + clinical.BLCA.stage_event_pathologic_stage, data = data4mfa)
 mosaic(struct, data = data4mfa, shade = TRUE, direction = "v",pop=F, main = "Grade")
@@ -388,11 +335,23 @@ legend("topleft", levels(cluster), pch = 15, col = terrain.colors(3))
 CrossTable(data4mfa$cluster,data4mfa$clinical.BLCA.stage_event_pathologic_stage, prop.r=F, prop.c=F,
            prop.t=F, prop.chisq=T, chisq = T)
 
+# AGECAT 
+clinical.BLCA$agecat<-factor(clinical.BLCA$agecat)
+struct <- structable(~ cluster + clinical.BLCA.agecat, data = data4mfa)
+mosaic(struct, data = data4mfa, shade = TRUE, direction = "v",pop=F, main = "Age Cat")
+labeling_cells(text = as.table(round(struct/nrow(data4mfa),2))*100, margin = 0)(as.table(round(struct/nrow(data4mfa),2)))
+barplot(round(struct/nrow(data4mfa),2)*100,beside = T, col = terrain.colors(3))
+legend("topleft", levels(cluster), pch = 15, col = terrain.colors(3))
+CrossTable(data4mfa$cluster,data4mfa$clinical.BLCA.diagnosis_subtype, prop.r=F, prop.c=F, prop.t=F, prop.chisq=T, chisq = T)
 
+
+
+
+# ==============================================================
 #7. COUNT MATRIX TO EVALUATE CONFIGURATION DISTRIBUION AMONG CLUSTERS
 # ==============================================================
 
-## Count Matrix:
+## SAMPLES Count Matrix:
 count_config_ind<-apply(matrix_t_filtered, 1, table)
 matrix_config_ind_count<-matrix(nrow = nrow(matrix_t_filtered), ncol = 40)
 rownames(matrix_config_ind_count)<-names(count_config_ind)
@@ -407,6 +366,8 @@ for (i in 1:l){
   }
 }
 matrix_config_ind_count[is.na(matrix_config_ind_count)] <- 0
+
+
 #Per cluster
 countdata<-matrix_config_ind_count[rownames(ind_in_cluster),]
 count.sum<-apply(countdata, 2, sum)
@@ -422,50 +383,16 @@ rownames(count_config_per_cluster)<-c(1:40)
 
 total_count_per_cluster<-apply(count_config_per_cluster,2,sum)
 total_count_per_config<-apply(count_config_per_cluster, 1, sum)
-
-
-
 freq_config_per_cluster<-cbind(c1_count/count.sum,c2_count/count.sum,c3_count/count.sum )
-freq_config_per_cluster[is.na(freq_config_per_cluster)] <- 0.0000000001 # to avoid marascuillo error
+freq_config_per_cluster[is.na(freq_config_per_cluster)] <- 0 # to avoid marascuillo error
 freq_config_per_cluster<-round(freq_config_per_cluster,2)
 colnames(freq_config_per_cluster)<-c("cluster1","cluster2","cluster3")
 rownames(freq_config_per_cluster)<-c(1:40)
 freq_config_per_cluster
 
-# Test for proportions, Marascuillo procedure
-## Set the proportions of interest.
-
-## Compute critical values.
-maras_procedure<-function(p,s){
-  N = length(p)
-  value = critical.range = tag = c()
-  categories <- c("C1","C2", "C3")
-  significntive<-c()
-  for (i in 1:(N-1)){ 
-    for (j in (i+1):N){
-      value <- round(c(value,(abs(p[i]-p[j]))),2)
-      critical.range = round(c(critical.range,
-                               sqrt(qchisq(.95,N-1))*sqrt(p[i]*(1-p[i])/s + p[j]*(1-p[j])/s)),2)
-      if (value > critical.range){
-        significative<-"Yes"
-      }else{
-        significative<-"No"
-      }
-      tag = c(tag, paste(categories[i], categories[j], sep = " to "))
-    }
-  }
-  df <- as.matrix(cbind(tag,critical.range,value, significative))
-  print(df)
-}
 
 
-
-for (i in c(1:40)){
-  cat("configuration ",i)
-  print(i)
-  maras_procedure(as.vector(as.matrix(freq_config_per_cluster[i,])),total_count_per_config[i]) 
-}
-
+# ==============================================================
 #7A. PLOTS IN COUNTS AND FRECUENCIES OF CLUSTERS
 # ==============================================================
 
@@ -484,9 +411,9 @@ par(mfrow=c(3,1))
 boxplot(countdata[ind_in_cluster == "1",])
 boxplot(countdata[ind_in_cluster == "2",])
 boxplot(countdata[ind_in_cluster == "3",])
+
+
 # boxplots whit ggplot
-library(reshape)
-library(ggplot2)
 c1.data<-melt(countdata[ind_in_cluster == "1",], id.var = "Config")
 c1.data$cluster<-rep("c1", length(nrow(c1.data)))
 c2.data<-melt(countdata[ind_in_cluster == "2",], id.var = "Config")
@@ -498,8 +425,8 @@ df.m$Var2<-as.character(df.m$Var2)
 ggplot(data = df.m, aes(x=Var2, y=value)) + geom_boxplot(aes(fill=df.m$cluster))
 
 
-
-# 8. PLOTS COLLAPSING THE GENOMIC DATA
+# ==============================================================
+# 7b. PLOTS COLLAPSING THE GENOMIC DATA
 # ==============================================================
 
 # MOSAIC ########
@@ -545,12 +472,9 @@ round(100*(cluster_3m/total_m),2)
 
 # GGPLOT  ########
 
-library(vcd)
-library(scales)
 # Normal
 # as: MUT FALSE, then: low, medium and high methylathed and inside as -2, -1, 0, 1, 2 cnv:
 list<-list(c("1","6","8","3","10"), c("2","11","5","4","17"), c("13","14","7","15","19"))
-setwd("~/omics/code to TFM/data/Data saved objects")
 for (i in 1:length(list)){
   df.1<-melt(countdata[ind_in_cluster == "1", unlist(list[i])],id.var="config")
   df.2<-melt(countdata[ind_in_cluster == "2", unlist(list[i])],id.var="config")
@@ -593,11 +517,11 @@ for (i in 1:length(list)){
 }
 
 
-
+# ==============================================================
 # 8. COMPARISION WITH TCGA DATA
 # ==============================================================
-setwd("~/omics/code to TFM/data/TCGAdata")
-tcga_blca<-read.table("BLCA_TCGA.csv", sep=" ")
+
+load("tcga_blca.RData")
 colnames(tcga_blca)<-c("barcode", "cluster")
 tcga_blca$barcode<-substr(tcga_blca$barcode, 6,12)
 rownames(tcga_blca)<-tcga_blca$barcode
@@ -605,24 +529,14 @@ tcgaANDme<-intersect(rownames(tcga_blca), rownames(data2index))
 mydata_tcgadata<-data.frame(tcga_blca[tcgaANDme,],data2index[tcgaANDme,])[,2:3]
 table(mydata_tcgadata)
 
-
+# ==============================================================
 # 9. SURVIVAL DATA AND ANALYSIS
 # ==============================================================
-setwd("~/omics/code to TFM/data/Clinical data")
-biocLite("RTCGA.clinical")
-library(RTCGA.clinical)
-library(survival)
-library(survminer)
-
-surv.clin<-survivalTCGA(BLCA.clinical, extract.cols= "admin.disease_code")
-surv.clin<-load("~/omics/code to TFM/data/Clinical data/surv.clin.RData")
+surv.clin<-load("surv.clin.RData")
 surv.clin$bcr_patient_barcode<-substr(surv.clin$bcr_patient_barcode, 6,12)
 rownames(surv.clin)<-surv.clin$bcr_patient_barcode
 index<-intersect(rownames(surv.clin), rownames(data2index))
 surv.clin.sel<-surv.clin[index,]
-dim(surv.clin.sel)
-data2index[index,]
-
 surv.data<-data.frame(surv.clin.sel[,c(1,3)], data2index[index,])
 names(surv.data)<-c("times", "status", "cluster")
 head(surv.data)
@@ -634,28 +548,11 @@ sfit <- survfit(Surv(times, status)~cluster, data=surv.data)
 ggsurvplot(sfit, conf.int=TRUE, pval=TRUE, risk.table = F)
 
 
-index<-intersect(rownames(surv.clin), tcgaANDme)
-index
-surv.clin.sel<-surv.clin[index,]
-dim(surv.clin.sel)
-tcga_blca[index,2]
 
-surv.data<-data.frame(surv.clin.sel[,c(1,3)], tcga_blca[index,2])
-names(surv.data)<-c("times", "status", "cluster")
-head(surv.data)
-prop.table(table(surv.data$cluster, surv.data$status),1)
-
-
-coxph(Surv(times, status)~cluster, data=surv.data)
-sfit <- survfit(Surv(times, status)~cluster, data=surv.data)
-ggsurvplot(sfit, conf.int=TRUE, pval=TRUE, risk.table = TRUE)
-
-
-
-
-
+# ==============================================================
 # 10. CREATE A FINGERPRINT IN THE SPACE OF GENE CONFIGURATIONS
 # ==============================================================
+
 ##Create fingerprint
 merge(contribucion,ind_in_cluster, by='row.names') -> merged_var
 ifelse(merged_var$V1=="1",1,0) -> merged_var$cluster1
@@ -681,16 +578,18 @@ matrix_t_clean_3_finger[,2:ncol(matrix_t_clean_3_finger)]->matrix_t_clean_3_fing
 
 # MCA for fingerprinting
 result_filter_var_finger <- MCA(matrix_t_clean_3_finger_2,
-                                quali.sup=(ncol(matrix_t_clean_3_finger_2)-2):(ncol(matrix_t_clean_3_finger_2)), graph = FALSE)
+                                quali.sup=(ncol(matrix_t_clean_3_finger_2)-2):(ncol(matrix_t_clean_3_finger_2)),
+                                graph = FALSE)
 
-
+# ==============================================================
 # 11. MATRIX OF DISTANCES
 # ==============================================================
+
 # Generate the finger coordinates and the variable cordinates
 var_coord<-result_filter_var_finger$var$coord
 finger_coord<-result_filter_var_finger$quali.sup$coord
 #calculate euclidean distance for each Gene_configuration to each fingerprint
-matrix_distance<-data.frame(matrix(NA, nrow=nrow(var_coord), ncol=6))#(matrix(NA, nrow=121390, ncol=6))
+matrix_distance<-data.frame(matrix(NA, nrow=nrow(var_coord), ncol=6))
 colnames(matrix_distance)<-rownames(finger_coord)
 rownames(matrix_distance)<-rownames(var_coord)
 for (i in 1:nrow(var_coord)){
@@ -701,7 +600,8 @@ matrix_distance$gene<-as.factor(sapply(strsplit(rownames(matrix_distance),
                                                 split = "_", fixed = TRUE), 
                                        function(x) unlist(x)[1]))
 
-# GENE CONFIGURATION CLOUD OF POINTS (VISUALIZATION)
+# ==============================================================
+# 12. GENE CONFIGURATION CLOUD OF POINTS (VISUALIZATION)
 # ==============================================================
 
 config_universe<-as.data.frame(result_filter_var_finger$var$coord[,1:3])
@@ -713,11 +613,10 @@ config_universe$config<-genes_configs
 config_universe$gene<-gene_names
 
 
-#3D MCA plotlibrary(rgl) for configurations
-library(rgl)
+#Plot 1
 plot3d(config_universe[,1:3], col=as.integer(config_universe$config),
        size=2, box=FALSE)
-
+#Plot 2
 plot3d(config_universe[,1:3], col="gray", size=2, box=FALSE)
 points3d(result_filter_var_finger$quali.sup$coord[2,1],result_filter_var_finger$quali.sup$coord[2,2],result_filter_var_finger$quali.sup$coord[2,3]  ,pch = 10, size= 10, col= "black")
 points3d(result_filter_var_finger$quali.sup$coord[4,1],result_filter_var_finger$quali.sup$coord[4,2],result_filter_var_finger$quali.sup$coord[4,3]  ,pch = 10, size= 10, col= "black")
@@ -729,12 +628,13 @@ abclines3d(result_filter_var_finger$quali.sup$coord[2,1:3], a = diag(3), col = "
 abclines3d(result_filter_var_finger$quali.sup$coord[4,1:3], a = diag(3), col = "gray")
 abclines3d(result_filter_var_finger$quali.sup$coord[6,1:3], a = diag(3), col = "gray")
 
-#3D MCA plotlibrary(rgl) for individuals
+# Plot 3
 plot3d(result_filter_var$ind$coord[,1:3],  col = as.factor(ind_in_cluster[rownames(result_filter_var$ind$coord),]), size = 2, type = "p", box=TRUE)
 points3d(config_universe[,1:3], col=as.integer(config_universe$config), size=2)
 
 
-# CLOUDS OF VARIABLES, CONFIGURATION SPACE CHARACTERIZATION COLLAPSING DATA
+# ==============================================================
+# 13. GENE CONFIGURATION CLOUD OF POINTS (VISUALIZATION): DECODED DATA
 # ==============================================================
 
 
@@ -792,14 +692,8 @@ for (i in 1:nrow(config_universe)) {
 }
 
 
-
-
-# some plots3D here.
-
-
-
-
-# 12. DETERMINANT FEATURE SELECTION (1% ARROUND FINGERPRINTS CLUSTERS)
+# ==============================================================
+# 14. FINGERPRINT ICS SELECTION (1% CLOSEST TO FINGERPRINT)
 # ==============================================================
 identical(rownames(var_coord), rownames(matrix_distance))
 
@@ -845,8 +739,8 @@ dim(set.finger13)
 set.finger13$config<-as.factor(sapply(strsplit(rownames(set.finger13), split = "_"), function(x) unlist(x)[2]))
 set.finger13$gene<-as.factor(sapply(strsplit(rownames(set.finger13), split = "_", fixed = TRUE), function(x) unlist(x)[1]))
 
-
-# 13. PLOTS3D FINGERPRINTS
+# ==============================================================
+# 15. PLOTS3D FINGERPRINTS
 # ==============================================================
 set.finger<-rbind(set.finger1,set.finger12, set.finger2,
                   set.finger23, set.finger3, set.finger13)
@@ -917,11 +811,6 @@ abclines3d(result_filter_var_finger$quali.sup$coord[4,1:3], a = diag(3), col = "
 abclines3d(result_filter_var_finger$quali.sup$coord[2,1:3], a = diag(3), col = "gray")
 
 
-
-
-
-
-
 #3D plot
 open3d()
 par3d(windowRect = c(1000, 1000, 612, 612))
@@ -969,7 +858,8 @@ legend3d("center", sublegend.plot, pch = c(1, 1, 1), col =  levels(as.factor(set
 useSubscene3d(parent)
 sublegend.plot
 
-# 14. CHARACTERIZE FINGERPRINTS
+# ==============================================================
+# 16. CHARACTERIZE FINGERPRINTS
 # ==============================================================
 
 identical((rownames(config_universe[rownames(set.finger),])), (rownames(set.finger)))
@@ -1023,8 +913,8 @@ round(prop.table(table(set.finger2$finger, set.finger2$config)),2)*100
 round(prop.table(table(set.finger3$finger, set.finger3$config)),2)*100
 
 
-
-# 15. CODE TO FURTHER FUNCIONAL ANALYSIS
+# ==============================================================
+# 17. SOME FUNCTIONS TO CODE FURTHER FUNCIONAL ANALYSIS WITH TOPGO
 # ==============================================================
 
 gene.universe<-colnames(matrix_t_clean_2)
@@ -1035,23 +925,6 @@ go.data <- getBM(attributes=c("go_id", 'hgnc_symbol'),
 gene2GO <- split(go.data$go_id,  go.data$hgnc_symbol)
 gene2GO <- lapply(gene2GO, unique)  # to remove duplicates
 
-
-library(topGO)
-
-#This is a function to retreive only those genes that are common to two fingers,
-#not common to all to increase the significance of our selection.
-record<-c()
-for (gen in set.finger$gene){
-  if (length((set.finger[set.finger$gene==gen,])$finger) ==2){
-    record=unique(c(record,gen))
-  }
-}
-length(set.finger$gene)#[1] 5577
-length(unique(set.finger$gene))#[1] 4497
-length(record)#[1] 816
-
-
-#This is a function to extract the configuratons for each grup from a list of unique genes
 
 #FUNCTION TO EXTRACT CONFIG LIST
 config_fx<-function(genes){
@@ -1075,9 +948,7 @@ list.GOgenes<-function(sig.x, GOdat, set.gene){
 }
 
 
-
-
-
+# Main functions to apply topGO
 GOdata_fx<-function(genes, geneuniverse){
   genelist<-factor(as.integer(geneuniverse %in% genes))
   names(genelist)<-geneuniverse
@@ -1099,9 +970,17 @@ topGO_fx<-function(GOdata){
 
 
 # ==============================================================
-# 16. LIST FOR FINGERS AND ICS
+# 18. LIST FOR FINGERS AND ICS
 # ==============================================================
 
+#This is a function to retreive only those genes that are common just in two fingers,
+# to increase the significance of our selection. Its a filter to get ICS from finger.
+record<-c()
+for (gen in set.finger$gene){
+  if (length((set.finger[set.finger$gene==gen,])$finger) ==2){
+    record=unique(c(record,gen))
+  }
+}
 
 #---------------------------
 # GENE LISTS:FINGER 1
@@ -1146,7 +1025,7 @@ finger1.sig.mut<-topGO_fx(GOdata1.mut)
 finger1.sig.mut
 
 
-# FINGER23
+# COMPLEMENTARY TO FINGER1 = FINGER23
 genes23<-unique(set.finger23$gene)
 GOdata23<-GOdata_fx(genes23,gene.universe)
 sig.finger23<-topGO_fx(GOdata23)
@@ -1333,7 +1212,7 @@ config_fx(t3.gene.sig)
 
 
 # ==============================================================
-# 16. LIST FOR DCS
+# 19. LIST FOR DCS
 # ==============================================================
 
 
@@ -1365,35 +1244,22 @@ sig.3U12<-topGO_fx(GOdata.3U12)
 rownames(sig.3U12)<-make.names(sig.3U12[,2], unique=T)
 
 
+# ==============================================================
+# 19a. LIST FOR ICS AND DCS
+# ==============================================================
 
 
+ics<-unique(c(genes1, genes2, genes3,  genes12, genes13, genes23))
+dcs<-c(genes.1U23, genes.2U13, genes.3U12)
 
 
+# ==============================================================
+# 20. HEATMAP FOR GO TERMS
+# ==============================================================
 
-#Proportions in DCS
-round(prop.table(table(config.genes.1U23$finger, config.genes.1U23$config)[1,]),2)*100
-round(prop.table(table(config.genes.2U13$finger, config.genes.2U13$config)[1,]),2)*100
-round(prop.table(table(config.genes.3U12$finger, config.genes.3U12$config)[1,]),2)*100
-
-
-
-
-# HEATMAP ALL GO TERMS
-sig.1
-sig.1n
-sig.1a
-sig.23
-sig.1U23
-sig.2
-#sig.2U13<-sig.2U13[c(1:6),], only to plot
-sig.2U13
-sig.3
-sig.3U12
-
+# HEATMAP FOR ALL THE COMMON IC AND DC TERMS
 
 c.GOsig.universe<-unique(c(rownames(sig.1n), rownames(sig.1a), rownames(sig.1U23), rownames(sig.2), rownames(sig.2U13), rownames(sig.3), rownames(sig.3U12)))
-length(c.GOsig.universe) #63
-
 c.GOTerm_matrix<-matrix(nrow=length(c.GOsig.universe), ncol=7)
 rownames(c.GOTerm_matrix)<-c.GOsig.universe
 colnames(c.GOTerm_matrix)<-as.character(seq(1:7))
@@ -1422,7 +1288,7 @@ heatmap.2(data.matrix(c.GOTerm_matrix),col=rev(hmcol), colsep=c(1:6),rowsep=(1:6
 
 
 
-#HEATMAP FOR ALL THE COMMON SHARED CONFIGURATIONS
+#HEATMAP FOR ALL THE COMMON DC TERMS
 GOsig.universe<-c(sig.1U23$Term, sig.2U13$Term, rownames(sig.3U12))
 length(GOsig.universe) #150
 
@@ -1454,6 +1320,7 @@ heatmap.2(data.matrix(c1.GOTerm_matrix),trace="none", na.color=hmcol[2],
           ColSideColors=cols,
           cexCol = 1,
           col=rev(hmcol), margins=c(5,20), notecex = 0.5, Rowv=F,Colv=F)
+
 
 
 #Finger1 vs 1u23: SHOW THE DISREGULATED BIOLOGICAL PROCESES BETWEEN GROUPS 1 AND 23
@@ -1529,129 +1396,68 @@ heatmap.2(data.matrix(c3.GOTerm_matrix),col=rev(hmcol), colsep=c(1:6),rowsep=(1:
 
 
 
-
-
-
-
-
-# To extract Terms
-sig.1n
-t1.gene.sig <- intersect(unlist(genesInTerm(GOdata1_nor, "GO:0009314")),set.finger1$gene)
-t1.gene.sig
-paste(t1.gene.sig, collapse=', ')
-config_fx(t1.gene.sig)
-
 # ==============================================================
-# 15. PROPORTIONS IN GENE LISTS
+# 21. PROPORTIONS IN GENE LISTS
 # ==============================================================
 
-# FINGER1, ICS1, DCS1
+# FINGER
+#---------------------------
 
-
-prop.table(table(set.finger1$config))*100
-table(set.finger1$finger, set.finger1$config)
-round(prop.table(table(set.finger1$finger, set.finger1$config)),2)*100
-
-#Normal 
+# Balanced (low and medium methylation, configs 8 and 5)
 prop.table(table((set.finger[set.finger$config=="8" | set.finger$config=="5",])$finger))*100
 chisq.test(table((set.finger[set.finger$config=="8" | set.finger$config=="5",])$finger))#X-squared = 10.683, df = 2, p-value = 0.004788
 
-
-
-
-
-#Mutations
-length((set.finger1[set.finger1$config=="21" | set.finger1$config=="29",])$gene)
+#Mutations (low and medium methylation, configs 21 and 29)
 prop.table(table((set.finger.simply[set.finger.simply$config=="21" | set.finger.simply$config=="29",])$finger))*100
 chisq.test(table((set.finger[set.finger$config=="21" | set.finger$config=="29",])$finger))#X-squared = 201.79, df = 4, p-value < 2.2e-16
 
 
-#Deletions
-length((set.finger2[set.finger2$CNV=="-1" | set.finger2$CNV=="-2",])$gene)
+#Duplications
 prop.table(table((set.finger[set.finger$CNV=="+1" | set.finger$CNV=="+2",])$finger))*100
 chisq.test(table((set.finger[set.finger$CNV=="+1" | set.finger$CNV=="+2",])$finger))#X-squared = 201.79, df = 4, p-value < 2.2e-16
 
-
-
-#Hypermethylated configurations
-(set.finger1[set.finger1$config=="7",])$gene
-#Deleted configurations
-(set.finger1[set.finger1$config=="11",])$gene
+#Deletions
+prop.table(table((set.finger[set.finger$CNV=="-1" | set.finger$CNV=="-2",])$finger))*100
+chisq.test(table((set.finger[set.finger$CNV=="-1" | set.finger$CNV=="-2",])$finger))#X-squared = 201.79, df = 4, p-value < 2.2e-16
 
 
 
 # Proportions ICs
-
+#---------------------------
 c1.nor<-config_fx(ics1_normal)
 round(prop.table(table(c1.nor$finger, c1.nor$config)),2)*100
 c1.alt<-config_fx(ics1_altered)
 round(prop.table(table(c1.alt$finger, c1.alt$config)),2)*100
 
 
+#Proportions of gene configuratons in DCS
+#---------------------------
+round(prop.table(table(config.genes.1U23$finger, config.genes.1U23$config)[1,]),2)*100
+round(prop.table(table(config.genes.2U13$finger, config.genes.2U13$config)[1,]),2)*100
+round(prop.table(table(config.genes.3U12$finger, config.genes.3U12$config)[1,]),2)*100
+
+
+
 # ==============================================================
-# 15. CNV CHROMOSOME ANNOTATION ENRICHMENT 
+# 22. ANNOTATION ENRICHMENT IN DAVID
 # ==============================================================
 
+# LIST TO DAVID ENRICHMENT
 
-ics1.mutated<-as.vector(set.finger1[set.finger1$Mut=="TRUE",]$gene)
-
-
-# CNV SPLITED IDEOGRAMS
 set.finger1<-set.finger[rownames(set.finger1),]
-ics1.duplicated<-as.vector(set.finger1[set.finger1$CNV== "+1"|set.finger1$CNV=="+2",]$gene)
-ics1.deleted<-as.vector(set.finger1[set.finger1$CNV== "-1"|set.finger1$CNV=="-2",]$gene)
+ics1.mutated<-as.vector(set.finger1[set.finger1$Mut== "TRUE",]$gene) # Only functional
 set.finger2<-set.finger[rownames(set.finger2),]
-ics2.duplicated<-as.vector(set.finger2[set.finger2$CNV== "+1"|set.finger2$CNV=="+2",]$gene)
-ics2.deleted<-as.vector(set.finger2[set.finger2$CNV== "-1"|set.finger2$CNV=="-2",]$gene)
+ics2.deleted<-as.vector(set.finger2[set.finger2$CNV== "-1"|set.finger2$CNV=="-2",]$gene)# functional and annotation
 set.finger3<-set.finger[rownames(set.finger3),]
-ics3.duplicated<-as.vector(set.finger3[set.finger3$CNV== "+1"|set.finger3$CNV=="+2",]$gene)
-ics3.deleted<-as.vector(set.finger3[set.finger3$CNV== "-1"|set.finger3$CNV=="-2",]$gene)
+ics3.duplicated<-as.vector(set.finger3[set.finger3$CNV== "+1"|set.finger3$CNV=="+2",]$gene)# functional and annotation
 
-
-
-
-write.table(ics1.deleted, file="ics1_deleted.txt", sep=",", append=T, col.names = F, row.names = F)
-write.table(ics1.duplicated, file="ics1_duplicated.txt", sep=",", append=T, col.names = F, row.names = F)
+write.table(ics1.mutated, file="ics1_deleted.txt", sep=",", append=T, col.names = F, row.names = F)
 write.table(ics2.deleted, file="ics2_deleted.txt", sep=",", append=T, col.names = F, row.names = F)
-write.table(ics2.duplicated, file="ics2_duplicated.txt", sep=",", append=T, col.names = F, row.names = F)
-write.table(ics3.deleted, file="ics3_deleted.txt", sep=",", append=T, col.names = F, row.names = F)
 write.table(ics3.duplicated, file="ics3_dupicated.txt", sep=",", append=T, col.names = F, row.names = F)
-write.table(ics1.mutated, file="ics1_mutated.txt", sep=",", append=T, col.names = F, row.names = F)
-
-# eSTO QUE SIGUE ESTA A MEDIAS, ES PARA PLOTEAR EL KARIOGRAMA, PERO NO PUEDO CARGAR LAS LIBRERIAS.
-
-txdb <- TxDb.Hsapiens.UCSC.hg19.knownGene
-all.genes<-genes(txdb)
-head(all.genes)
-columns(txdb)
-
-ics3.dup.anot<-getBM(attributes=c("hgnc_symbol","entrezgene"),
-filters= "hgnc_symbol",
-values= ics3.duplicated,
-mart=ensembl)
-
-sel<-as.data.frame(select(txdb, keys=as.character(ics3.dup.anot$entrezgene), columns=c("TXCHROM", "TXSTART", "TXEND", "TXSTRAND"), keytype="GENEID"))
-head(sel)
-sel<-is.na(sel)
-reference_GRange <- GRanges(seqnames= sel$TXCHROM,IRanges(start= sel$TXSTART,end= sel$TXEND),h.gene=sel$GENEID) 
 
 
+# LIST FROM DAVID ENRICHMENT
 
-#chr 1 is automatically drawn by default (subchr="chr1")
-p.ideo <- Ideogram(genome = "hg19")
-p.ideo
-
-autoplot(reference_GRange, layout = "karyogram", cytoband = TRUE)
-
-
-#Highlights a region on "chr2"
-p.ideo + xlim(GRanges("chr2", IRanges(1e8, 1e8+10000000)))
-
-
-
-# LIST to DAVID ENRICHMENT
-
-setwd("~/omics/code to TFM/data/Data saved objects/DAVID list")
 ics2_del.annot<-read.table("ics2_del_resDAVID.txt", header = T, sep="\t", fill = T)
 ics2_del.annot<-ics2_del.annot[ics2_del.annot$Category=="CYTOBAND",]
 ics2_del.sig<-ics2_del.annot[ics2_del.annot$Benjamini<0.05,]
@@ -1659,33 +1465,29 @@ ics2_del.sig$Chr<-sapply(ics2_del.sig$Term, function(x) substr(x,1,2))
 ics2_del.sig.19<-ics2_del.sig[ics2_del.sig$Chr=="19",]
 
 
-head(ics2_del.sig)
-names(ics2_del.sig)
-dim(ics2_del.sig)
-
 ics3_dup.annot<-read.table("ics3_dup_resDAVID.txt", header = T, sep="\t", fill = T)
+ics3_dup.annot<-ics3_dup.annot[ics3_dup.annot$Category=="CYTOBAND",]
+ics3_dup.sig<-ics2_del.annot[ics3_dup.annot$Benjamini<0.05,]
+ics3_dup.sig$Chr<-sapply(ics3_dup.sig$Term, function(x) substr(x,1,2))
+ics3_dup.sig.19<-ics3_dup.sig[ics3_dup.sig$Chr=="12",]
 
-# 15. EXPRESSION DATA 
+
+
+# ==============================================================
+# 23. EXPRESSION DATA CORRELATION
 # ==============================================================
 
 
 # Expression data:
-setwd("~/omics/code to TFM/data/Expression data")
-expression<-read.table("BLCA_rna.txt", header=TRUE, row.names=1, sep="\t", check.names = FALSE)
-dim(expression) # [1] 20531   427
-
-
+load("expression.RData")
 exp<-expression[,which(substr(colnames(expression), 14,16) == "01A")]
-dim(exp) # [1] 20532   405
-head(exp)
 exp<-expression[c(2:20532), ]
+
 # Patients names 
 colnames(exp)<-substr(colnames(exp), 6,12)
 colnames(exp)<-gsub("\\.", "-", colnames(exp))
 exp.matrix<-exp[, intersect(rownames(matrix_t_clean_2), names(exp))]
 dim(exp.matrix)# [1] 20531   218
-
-
 
 # Gene names
 exp.filt.names<-as.vector(sapply(rownames(exp.filt), function(x) unlist(strsplit(x, split = "|", fixed = TRUE))[1]))
@@ -1698,12 +1500,7 @@ exp.filt<-exp.filt[exp.index.genes,]
 dim(exp.filt) # [1] 10244   218
 rownames(exp.filt)<-as.vector(sapply(rownames(exp.filt), function(x) unlist(strsplit(x, split = "|", fixed = TRUE))[1]))
 countdata<-data.matrix(exp.filt)
-
 countdata<-countdata[,rownames(cluster.group[order(cluster.group$cluster),])]
-
-
-ics<-unique(c(genes1, genes2, genes3,  genes12, genes13, genes23))
-dcs<-c(genes.1U23, genes.2U13, genes.3U12)
 
 finger.countdata<-countdata[intersect(ics,rownames(countdata)),]
 dim(finger.countdata)
@@ -1714,8 +1511,6 @@ dim(finger.countdata)
 
 # UNSUPERVISED CLUSTERING FOR MCA AND EXPRESSION IN ICS: COMPARISION
 # ==============================================================
-
-
 
 # cluster MCA
 clust.hcpc <- as.numeric(cluster_var$data.clust$clust)
@@ -1731,8 +1526,7 @@ cluster_var$call$t$tree %>%
 mca.dend<-as.dendrogram(cluster_var$call$t$tree)
 
 
-# Hieralchical kmeans clustering for EXPRESSION DATA
-
+# Hieralchical kmeans clustering for EXPRESSION DATA OF ICS
 d.exp<-dist(t(finger.countdata))
 hc.exp<-hclust(d.exp, method="ward.D")
 plot(hc.exp, hang = -1)
@@ -1769,14 +1563,13 @@ dim(expresion.group)
 # Cluster type
 cluster.group<-data2index[rownames(expresion.group),]
 dim(cluster.group)
-
 identical(rownames(expresion.group), rownames(cluster.group))
 
 # Clinical type
 exp.clin.data<-data4mfa[rownames(cluster.group),]
 identical(rownames(cluster.group), rownames(exp.clin.data))
 
-
+# Data frame with all the indexes.
 cluster.cor<-data.frame(expresion.group$`hkm.exp$cluster`, cluster.group$cluster, exp.clin.data$clinical.BLCA.diagnosis_subtype)
 rownames(cluster.cor)<-rownames(cluster.group)
 
@@ -1797,7 +1590,7 @@ round(prop.table(table(expANDclus$mca, expANDclus$exp)[1,]),2)*100
 round(prop.table(table(expANDclus$mca, expANDclus$exp)[2,]),2)*100
 round(prop.table(table(expANDclus$mca, expANDclus$exp)[3,]),2)*100
 
-#Otro tipo de representacion (expresion de ics)
+# Alternative dendrograms (ICs expression clusters)
 
 # Set up colour vector for celltype variable in clinical: Papillary, non-papillary
 col.cell.clin <- c("purple","orange")[clinical.type]
@@ -1816,12 +1609,8 @@ colored_bars(cbind(cluster.type, clinical.type), dend_exp, rowLabels = c("cluste
 
 
 
-# 16. UNSUPERVISED MULTISCALING
+# UNSUPERVISED MULTISCALING
 # ==============================================================
-
-
-
-
 
 groups<-factor(cluster.type)
 # Countdata object sorted as cluster group to latter match with the cluster group in ColSideColoros 
@@ -1837,12 +1626,10 @@ lcpm <- cpm(y, log=TRUE)
 
 
 
-
-# 16. NORMALIZATION, CPM FILTERING AND HEATMAPS
+# CPM FILTERING AND HEATMAPS
 # ==============================================================
 
-
-# 2. UNFILTERED DATA: Heapmap expression with the top 100 more variables
+# A. UNFILTERED DATA: Heapmap expression with the top 100 more variables
 
 ## Get some nicer colours
 mypalette <- brewer.pal(11,"RdYlBu")
@@ -1869,7 +1656,7 @@ legend("topright",legend=c("Papillary","Not-papillary","Cluster 1","Cluster 2","
 
 
 
-# FILTERING STEP: 
+# A1. FILTERING STEP: 
 # Removing the low expressed genes
 
 # Filtering step
@@ -1959,7 +1746,6 @@ pheatmap(mat, cluster_cols=F)
 
 # HCLUSTERING AND DENDROGRAMS ON HIGH VARIABLE CPM FILTERED 
 
-
 d.exp<-dist(t(highly_variable_cpm))
 hc.exp<-hclust(d.exp, method="ward.D")
 plot(hc.exp, hang = -1)
@@ -1988,44 +1774,8 @@ tanglegram(mca.dend,dend_exp.hvar, color_lines=(cluster_var$call$X$clust),
 
 
 
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-# 16. EXPRESSION ANALYSIS WITH LIMMA
+# ==============================================================
+# 24. DIFFERENTIAL EXPRESSION ANALYSIS WITH VOOM LIMMA
 # ==============================================================
 
 
@@ -2074,14 +1824,13 @@ sel.vommed<-as.vector(sapply(sel.vommed, function(x)
 cat(sel.vommed, sep="\n")
 length(sel.vommed)
 
-
+# lIST TO FUNCTIONAL ENRICHMENT IN DAVID
 save(sel.vommed, file = "selvoomed.RData")
 save(ics2.deleted, file = "ics2deleted.RData")
 save(ics3.duplicated, file = "ics3duplicated.RData")
 
-# 16. PLOTMEANS AND STATISTISTICS
+# PLOTMEANS AND STATISTISTICS
 # ==============================================================
-# Plotmeans and statistics
 
 pdf("plotmeans-voomed-summary2.pdf")
 counts_t<-as.data.frame(t(data.matrix(exp.matrix)))
@@ -2113,115 +1862,12 @@ for (gene in sel.vommed){
 
 dev.off()
 
+
+
+relevant<-as.vector(sapply(relevant, function(x) unlist(strsplit(x, split = "|", fixed = TRUE))[1]))
 relevant
-relevant<-as.vector(sapply(relevant, function(x) 
-  unlist(strsplit(x, split = "|", fixed = TRUE))[1]))
-cat(relevant, sep="\n")
-
-table(matrix_clusters$NR2E1, matrix_clusters$cluster)
-round(prop.table(table(matrix_clusters$CTDSP1, matrix_clusters$cluster)[c(1),]),2)*100
-round(prop.table(table(matrix_clusters$CTDSP1, matrix_clusters$cluster)[c(6),]),2)*100
-chisq.test(table(matrix_clusters$ATOH7, matrix_clusters$cluster)[c(1,7),])
 
 
-table(matrix_clusters$CALCB, matrix_clusters$cluster)
-cat(genes.1U23, sep="\n")
-
-
-
-
-# GROUP COMPARISION with CONTRAST MATRIX
-
-design<-model.matrix(~0+group)
-colnames(design)<-c("c1","c2","c3")
-fit<-lmFit(readES, design)
-contrast.matrix<-makeContrasts(
-  c1vsc2 = c1 - c2, 
-  c1vsc3 = c1 - c3, 
-  c2vsc3 = c2 - c3, 
-  levels = colnames(design))
-contrast.matrix
-
-fit2  <- contrasts.fit(fit, contrast.matrix)
-fit2  <- eBayes(fit2)
-
-topTable(fit2,adjust="fdr")
-results <- decideTests(fit2)
-summary(results)
-vennDiagram(results)
-
-
-
-selected.c1<- p.adjust(fit2$p.value[,1], method = "fdr") <0.05 
-esetSel.c1 <- readES[selected.c1, ] 
-mycol <- colorpanel(1000,"blue","white","red")
-i <- which(rownames(dat.voomed$E) %in% rownames(exprs(esetSel.c1)))
-col.cell <- c("purple","orange", "green")[cluster.type]
-heatmap.2(dat.voomed$E[i,], scale="row",
-          labRow=rownames(exprs(esetSel.c1))[i], labCol=readES$group, 
-          col=mycol, trace="none", density.info="none", 
-          margin=c(8,6), lhei=c(2,10), dendrogram="column", ColSideColors = col.cell)
-
-heatmap(exprs(esetSel.c1), col=topo.colors(100), ColSideColors=col.cell) 
-
-
-
-
-
-
-# 9. SURVIVAL DATA FOR EXPRESSION CLUSTERS AND ANALYSIS
-# ==============================================================
-setwd("~/omics/code to TFM/data/Clinical data")
-surv.clin<-survivalTCGA(BLCA.clinical, extract.cols= "admin.disease_code")
-surv.clin<-load("~/omics/code to TFM/data/Clinical data/surv.clin.RData")
-surv.clin$bcr_patient_barcode<-substr(surv.clin$bcr_patient_barcode, 6,12)
-rownames(surv.clin)<-surv.clin$bcr_patient_barcode
-index<-intersect(rownames(surv.clin), names(expresion.group))
-surv.clin.sel<-surv.clin[index,]
-dim(surv.clin.sel)
-exp.index<-expresion.group[index]
-
-surv.data<-data.frame(surv.clin.sel[,c(1,3)], exp.index)
-names(surv.data)<-c("times", "status", "cluster")
-head(surv.data)
-prop.table(table(surv.data$cluster, surv.data$status),1)
-
-
-coxph(Surv(times, status)~cluster, data=surv.data)
-sfit <- survfit(Surv(times, status)~cluster, data=surv.data)
-ggsurvplot(sfit, conf.int=TRUE, pval=TRUE, risk.table = F)
-
-
-index<-intersect(rownames(surv.clin), tcgaANDme)
-index
-surv.clin.sel<-surv.clin[index,]
-dim(surv.clin.sel)
-tcga_blca[index,2]
-
-surv.data<-data.frame(surv.clin.sel[,c(1,3)], tcga_blca[index,2])
-names(surv.data)<-c("times", "status", "cluster")
-head(surv.data)
-prop.table(table(surv.data$cluster, surv.data$status),1)
-
-
-coxph(Surv(times, status)~cluster, data=surv.data)
-sfit <- survfit(Surv(times, status)~cluster, data=surv.data)
-ggsurvplot(sfit, conf.int=TRUE, pval=TRUE, risk.table = TRUE)
-
-
-
-
-
-
-
-class(surv.data$times)
-fit <- survfit(Surv(times, status) ~ 1, data = surv.data)
-# Drawing curves
-ggsurvplot(fit, color = "#2E9FDF")
-
-fit<- survfit(Surv(times, status) ~ cluster , data = surv.data)
-# Drawing survival curves
-ggsurvplot(fit)
 
 
 
