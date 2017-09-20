@@ -916,6 +916,17 @@ round(prop.table(table(set.finger1$finger, set.finger1$config)),2)*100
 round(prop.table(table(set.finger2$finger, set.finger2$config)),2)*100
 round(prop.table(table(set.finger3$finger, set.finger3$config)),2)*100
 
+                                    
+# ==============================================================
+# 16b. MFA TO FINGER VARIABLES: DECODED 
+#==============================================================
+
+
+pdf("MFA_finger_plot.pdf", width = 15, height = 15)
+res = MFA(set.finger[,c(6,9:11)], group = c(1, 1, 1, 1), type = c("n","n","n", "n"), 
+          name.group = c("Finger", "Mut","CNV", "MET"), num.group.sup = 3)
+dev.off()
+                                
 
 # ==============================================================
 # 17. SOME FUNCTIONS TO CODE FURTHER FUNCIONAL ANALYSIS WITH TOPGO
