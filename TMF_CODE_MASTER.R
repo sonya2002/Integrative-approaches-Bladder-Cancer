@@ -59,15 +59,6 @@ load("matrix.RData")
 # Legend for the gene configurations
 load("configlegend.RData")
 
-# Expression data:
-load("expression.RData")
-exp<-expression[c(2:20532),which(substr(colnames(expression), 14,16) == "01A")]
-colnames(exp)<-substr(colnames(exp), 6,12)
-colnames(exp)<-gsub("\\.", "-", colnames(exp))
-exp.filt<-exp[, intersect(names(matrix), names(exp))]
-exp.filt.names<-as.vector(sapply(rownames(exp.filt), function(x) 
-  unlist(strsplit(x, split = "|", fixed = TRUE))[1]))
-
 
 # Clinical data:
 load("clinical_BLCA.RData")
@@ -1479,14 +1470,7 @@ ics3_dup.sig.19<-ics3_dup.sig[ics3_dup.sig$Chr=="12",]
 
 
 # Expression data:
-load("expression.RData")
-exp<-expression[,which(substr(colnames(expression), 14,16) == "01A")]
-exp<-expression[c(2:20532), ]
-
-# Patients names 
-colnames(exp)<-substr(colnames(exp), 6,12)
-colnames(exp)<-gsub("\\.", "-", colnames(exp))
-exp.matrix<-exp[, intersect(rownames(matrix_t_clean_2), names(exp))]
+load("exp.matrix.RData")
 dim(exp.matrix)# [1] 20531   218
 
 # Gene names
