@@ -916,9 +916,95 @@ round(prop.table(table(set.finger1$finger, set.finger1$config)),2)*100
 round(prop.table(table(set.finger2$finger, set.finger2$config)),2)*100
 round(prop.table(table(set.finger3$finger, set.finger3$config)),2)*100
 
-                                    
+
 # ==============================================================
-# 16b. MFA TO FINGER VARIABLES: DECODED 
+# 16A. FINGERPRINTS 3D PLOTS FOR SPITED
+# ==============================================================
+
+
+# FOR 3D representations
+sel.pca3d<-data.frame(set.finger[,c(1:3, 6:7, 8:11)])
+sel.pca3d.simply<-data.frame(set.finger.simply[,c(1:3, 6:7, 8:11)])
+
+
+#CNVS
+
+#3D plot
+ncolor=3
+open3d()
+par3d(windowRect = c(1000, 1000, 612, 612))
+Sys.sleep(0.1) # Allow sluggish window managers to catch up
+parent <- currentSubscene3d()
+mfrow3d(1, 2)
+plot3d(sel.pca3d.simply[,1:3], col=as.integer(sel.pca3d.simply$CNV)+ncolor, box=FALSE, size=3)
+points3d(result_filter_var_finger$quali.sup$coord[2,1],result_filter_var_finger$quali.sup$coord[2,2],result_filter_var_finger$quali.sup$coord[2,3]  ,pch = 10, size= 10, col= "black")
+points3d(result_filter_var_finger$quali.sup$coord[4,1],result_filter_var_finger$quali.sup$coord[4,2],result_filter_var_finger$quali.sup$coord[4,3]  ,pch = 10, size= 10, col= "black")
+points3d(result_filter_var_finger$quali.sup$coord[6,1],result_filter_var_finger$quali.sup$coord[6,2],result_filter_var_finger$quali.sup$coord[6,3]  ,pch = 10, size= 10, col= "black")
+text3d(result_filter_var_finger$quali.sup$coord[2,1]+0.1,result_filter_var_finger$quali.sup$coord[2,2]+0.1,result_filter_var_finger$quali.sup$coord[2,3]  ,text= c("C1"))
+text3d(result_filter_var_finger$quali.sup$coord[4,1]+0.1,result_filter_var_finger$quali.sup$coord[4,2]+0.1,result_filter_var_finger$quali.sup$coord[4,3]  ,text= c("C2"))
+text3d(result_filter_var_finger$quali.sup$coord[6,1]+0.1,result_filter_var_finger$quali.sup$coord[6,2]+0.1,result_filter_var_finger$quali.sup$coord[6,3]  ,text= c("C3"))
+abclines3d(result_filter_var_finger$quali.sup$coord[2,1:3], a = diag(3), col = "gray")
+abclines3d(result_filter_var_finger$quali.sup$coord[4,1:3], a = diag(3), col = "gray")
+abclines3d(result_filter_var_finger$quali.sup$coord[6,1:3], a = diag(3), col = "gray")
+next3d(reuse = FALSE)
+legend3d("center", c("CNV 0","CNV -1", "CNV +1", "CNV -2", "CNV +2"), pch = c(1, 1, 1), col =  unique(as.integer(sel.pca3d.simply$CNV))+ncolor)
+useSubscene3d(parent)
+
+
+
+# MUTATIONS
+
+#3D plot
+ncolor=2
+open3d()
+par3d(windowRect = c(1000, 1000, 612, 612))
+Sys.sleep(0.1) # Allow sluggish window managers to catch up
+parent <- currentSubscene3d()
+mfrow3d(1, 2)
+plot3d(sel.pca3d[,1:3], col=as.integer(sel.pca3d$Mut)+ncolor, box=FALSE, size=3)
+#plot3d(ellipse3d(Sigma, centre = Mean), col = "green", alpha = 0.5, add = TRUE)
+points3d(result_filter_var_finger$quali.sup$coord[2,1],result_filter_var_finger$quali.sup$coord[2,2],result_filter_var_finger$quali.sup$coord[2,3]  ,pch = 10, size= 10, col= "black")
+points3d(result_filter_var_finger$quali.sup$coord[4,1],result_filter_var_finger$quali.sup$coord[4,2],result_filter_var_finger$quali.sup$coord[4,3]  ,pch = 10, size= 10, col= "black")
+points3d(result_filter_var_finger$quali.sup$coord[6,1],result_filter_var_finger$quali.sup$coord[6,2],result_filter_var_finger$quali.sup$coord[6,3]  ,pch = 10, size= 10, col= "black")
+text3d(result_filter_var_finger$quali.sup$coord[2,1]+0.1,result_filter_var_finger$quali.sup$coord[2,2]+0.1,result_filter_var_finger$quali.sup$coord[2,3]  ,text= c("C1"))
+text3d(result_filter_var_finger$quali.sup$coord[4,1]+0.1,result_filter_var_finger$quali.sup$coord[4,2]+0.1,result_filter_var_finger$quali.sup$coord[4,3]  ,text= c("C2"))
+text3d(result_filter_var_finger$quali.sup$coord[6,1]+0.1,result_filter_var_finger$quali.sup$coord[6,2]+0.1,result_filter_var_finger$quali.sup$coord[6,3]  ,text= c("C3"))
+abclines3d(result_filter_var_finger$quali.sup$coord[2,1:3], a = diag(3), col = "gray")
+abclines3d(result_filter_var_finger$quali.sup$coord[4,1:3], a = diag(3), col = "gray")
+abclines3d(result_filter_var_finger$quali.sup$coord[6,1:3], a = diag(3), col = "gray")
+next3d(reuse = FALSE)
+legend3d("center", c("Mut TRUE", "Mut FALSE"), pch = c(1, 1), col =  unique(as.integer(sel.pca3d$Mut))+ncolor)
+useSubscene3d(parent)
+
+# METHILATION
+
+
+#3D plot
+ncolor=1
+open3d()
+par3d(windowRect = c(1000, 1000, 612, 612))
+Sys.sleep(0.1) # Allow sluggish window managers to catch up
+parent <- currentSubscene3d()
+mfrow3d(1, 2)
+plot3d(sel.pca3d[,1:3], col=as.integer(sel.pca3d$MET)+ncolor, box=FALSE, size=3)
+#plot3d(ellipse3d(cov1_c1, centre=Mean1_c1, level=0.75), col = "green", alpha = 0.2, add = TRUE, box=FALSE)
+#spheres3d(Mean1_c1, radius = rad, col = "green", alpha = 0.2, add = TRUE, box=FALSE)
+points3d(result_filter_var_finger$quali.sup$coord[2,1],result_filter_var_finger$quali.sup$coord[2,2],result_filter_var_finger$quali.sup$coord[2,3]  ,pch = 10, size= 10, col= "black")
+points3d(result_filter_var_finger$quali.sup$coord[4,1],result_filter_var_finger$quali.sup$coord[4,2],result_filter_var_finger$quali.sup$coord[4,3]  ,pch = 10, size= 10, col= "black")
+points3d(result_filter_var_finger$quali.sup$coord[6,1],result_filter_var_finger$quali.sup$coord[6,2],result_filter_var_finger$quali.sup$coord[6,3]  ,pch = 10, size= 10, col= "black")
+text3d(result_filter_var_finger$quali.sup$coord[2,1]+0.1,result_filter_var_finger$quali.sup$coord[2,2]+0.1,result_filter_var_finger$quali.sup$coord[2,3]  ,text= c("C1"))
+text3d(result_filter_var_finger$quali.sup$coord[4,1]+0.1,result_filter_var_finger$quali.sup$coord[4,2]+0.1,result_filter_var_finger$quali.sup$coord[4,3]  ,text= c("C2"))
+text3d(result_filter_var_finger$quali.sup$coord[6,1]+0.1,result_filter_var_finger$quali.sup$coord[6,2]+0.1,result_filter_var_finger$quali.sup$coord[6,3]  ,text= c("C3"))
+abclines3d(result_filter_var_finger$quali.sup$coord[2,1:3], a = diag(3), col = "gray")
+abclines3d(result_filter_var_finger$quali.sup$coord[4,1:3], a = diag(3), col = "gray")
+abclines3d(result_filter_var_finger$quali.sup$coord[6,1:3], a = diag(3), col = "gray")
+next3d(reuse = FALSE)
+legend3d("center", c("High","Low","Medium"), pch = c(1, 1), col =  unique(as.integer(sel.pca3d$MET))+ncolor)
+useSubscene3d(parent)
+
+
+# ==============================================================
+# 16B. MFA TO FINGER VARIABLES: DECODED 
 #==============================================================
 
 
