@@ -1,8 +1,8 @@
 
 # WORKING DIRECTORY
 # ==============================================================
-# Setting the enviroment
-setwd("C:/Users/User/Desktop/OMICS DATA ANALISIS/09 TFM")
+# Set up the directory where source data is placed
+
 
 
 # LIBRARIES
@@ -36,7 +36,6 @@ library(dendextend)
 # DATA SOURCES
 # ==============================================================
 # Dataset of gene configurations 
-setwd("~/omics/code to TFM/data/source data")
 matrix<-read.table("matrix_res2_2", header=T, row.names=1, 
                    colClasses = "character", check.names=F)
 configlegend<-read.table("leyend2import.csv",  header = F)
