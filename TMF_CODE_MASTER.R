@@ -36,6 +36,7 @@ library(clustertend)
 library(seriation)
 library(gmodels)
 library(reshape)
+
 library(ggplot2)
 library(scales)
 library(RTCGA.clinical)
@@ -62,6 +63,7 @@ load("configlegend.RData")
 
 # Clinical data:
 load("clinical_BLCA.RData")
+patients<-names(matrix)
 rownames(clinical_BLCA)<-patients
 clinical.BLCA<-as.data.frame(clinical_BLCA)
 clinical.BLCA$age<-round(-(clinical.BLCA$days_to_birth/365),0)
